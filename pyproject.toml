@@ -1,0 +1,21 @@
+[project]
+name = "gb-bm-data"
+version = "0.1.0"
+description = "Typed Python client for historical GB balancing-mechanism data (Elexon BMRS v2 + Carbon Intensity API)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "requests>=2.31",
+    "pandas>=2.0",
+]
+
+[project.urls]
+Repository = "https://github.com/KNHNF/gb-bm-data"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gb_bm_data*"]
