@@ -23,6 +23,12 @@ FAKE_PRICE_ROW = {
     "totalAcceptedBidVolume": -30.0,
 }
 
+FAKE_DEMAND_OUTTURN_ROWS = [
+    {"startTime": "2026-01-01T00:05:00Z", "demand": 1000},
+    {"startTime": "2026-01-01T00:25:00Z", "demand": 1100},
+    {"startTime": "2026-01-01T00:30:00Z", "demand": 1200},
+]
+
 FAKE_DEMAND_FORECAST_RECORD = {
     "_id": 1,
     "DAYSAHEAD": 1,
@@ -63,6 +69,14 @@ def test_get_system_prices_empty_range_returns_empty_frame():
     with patch("gb_bm_data.client.get_json", return_value={"data": []}):
         df = client.get_system_prices(date(2026, 1, 1), date(2026, 1, 1))
     assert df.empty
+
+
+def test_get_demand_outturn_aggregates_five_minute_values_to_settlement_periods():
+    client = BMRSClient(sleep_seconds=0)
+    with patch("gb_bm_data.client.get_json", return_value={"data": FAKE_DEMAND_OUTTURN_ROWS}):
+        df = client.get_demand_outturn(date(2026, 1, 1), date(2026, 1, 1))
+    assert list(df["settlementPeriod"]) == [1, 2]
+    assert list(df["demand_mw"]) == [1050, 1200]
 
 
 def test_live_only_endpoint_raises():
@@ -170,6 +184,7 @@ def test_retry_params_pass_through_to_http_layer():
 if __name__ == "__main__":
     test_get_system_prices_computes_approx_cost()
     test_get_system_prices_empty_range_returns_empty_frame()
+    test_get_demand_outturn_aggregates_five_minute_values_to_settlement_periods()
     test_live_only_endpoint_raises()
     test_get_generation_mix_parses_fuel_percentages()
     test_get_generation_mix_empty_range_returns_empty_frame()

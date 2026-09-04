@@ -76,6 +76,19 @@ plan (decided 2026-08-15): GitHub-only for now, `pip install
 git+https://github.com/KNHNF/gb-bm-data`; revisit PyPI once the API
 surface settles.
 
+## GitHub release checklist
+
+This package is not published until Karan approves the release.
+
+1. Run `python tests/test_client.py` from a clean virtual environment.
+2. Confirm `pip install -e .` and `pip check` succeed.
+3. Review the public README and licence attribution below.
+4. Create the GitHub remote, push the reviewed commit, then install with:
+
+```bash
+pip install git+https://github.com/KNHNF/gb-bm-data
+```
+
 Used since as the data layer for two independent paper reproductions:
 [lucas-2020-reproduction](../lucas-2020-reproduction) and a Bunn/Ganesh &
 Bunn/Deng reproduction set, both under `public-projects`.
