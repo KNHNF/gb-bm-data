@@ -14,7 +14,7 @@ from gb_bm_data.exceptions import LiveOnlyEndpointError
 
 BASE_URL = "https://data.elexon.co.uk/bmrs/api/v1"
 
-LIVE_ONLY_DATASETS = {"DATL", "FOU2T14D", "demand/outturn/stream"}
+LIVE_ONLY_DATASETS = {"DATL", "FOU2T14D", "demand/outturn/stream", "INTOUTHH"}
 
 
 @dataclass
@@ -95,6 +95,54 @@ class BMRSClient:
             return pd.DataFrame()
         df = pd.DataFrame(rows)
         return df.sort_values(["settlementDate", "settlementPeriod"]).reset_index(drop=True)
+
+    def get_interconnector_flows(self, *_args, **_kwargs):
+        """INTOUTHH via /generation/outturn/interconnectors. Deliberately
+        raises. First implemented 2026-09-12 on the mistaken belief (a
+        misread WebFetch test result) that this endpoint honours historical
+        from/to parameters. Directly retested the same day with a clean
+        single-day request (2017-03-01): the endpoint returned only the
+        three most recent live days (confirmed against real system dates),
+        completely ignoring the requested historical range, same failure
+        mode as DATL, FOU2T14D and demand/outturn/stream. Fails loud instead
+        of silently returning today's data mislabelled as a historical year,
+        which is what the first version of this method did."""
+        raise LiveOnlyEndpointError(
+            "INTOUTHH ('/generation/outturn/interconnectors') is live-only in BMRS v2, "
+            "ignores historical from/to parameters entirely. Confirmed by direct retest "
+            "2026-09-12, after an earlier implementation of this method incorrectly "
+            "treated it as historical based on a misread test result."
+        )
+
+    def get_nonbm_stor(self, start: date, end: date) -> pd.DataFrame:
+        """NONBM dataset via /balancing/nonbm/stor: non-BM Short Term Operating
+        Reserve volumes. Confirmed live 2026-09-12: the endpoint and its from/to
+        parameters work and return the standard {metadata, data} shape, but the
+        data array was empty for every window tried against real dates, both
+        recent (Aug 2026) and a spot-check day in 2024. Whether that means STOR
+        events are genuinely rare/sparse in this dataset or something about the
+        query needs adjusting has not been confirmed; treat an empty frame from
+        this method as "no rows returned", not as proof STOR never happened in
+        that window."""
+        import time
+
+        rows: list[dict] = []
+        current = start
+        while current <= end:
+            url = f"{self.base_url}/balancing/nonbm/stor"
+            data = get_json(url, params={
+                "from": current.isoformat(),
+                "to": current.isoformat(),
+                "format": "json",
+            }, max_retries=self.max_retries, backoff_seconds=self.backoff_seconds).get("data", [])
+            rows.extend(data)
+            if self.sleep_seconds:
+                time.sleep(self.sleep_seconds)
+            current += timedelta(days=1)
+
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
 
     def get_forecast(self, dataset: str, *_args, **_kwargs):
         """Deliberately raises. Confirmed during dissertation collection

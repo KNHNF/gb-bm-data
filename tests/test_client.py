@@ -79,6 +79,31 @@ def test_get_demand_outturn_aggregates_five_minute_values_to_settlement_periods(
     assert list(df["demand_mw"]) == [1050, 1200]
 
 
+def test_get_interconnector_flows_raises_live_only():
+    client = BMRSClient(sleep_seconds=0)
+    try:
+        client.get_interconnector_flows(date(2026, 1, 1), date(2026, 1, 1))
+        assert False, "expected LiveOnlyEndpointError"
+    except LiveOnlyEndpointError:
+        pass
+
+
+def test_get_nonbm_stor_parses_rows():
+    client = BMRSClient(sleep_seconds=0)
+    fake_row = {"dataset": "NONBM", "settlementDate": "2026-01-01", "settlementPeriod": 1, "volume": 5.2}
+    with patch("gb_bm_data.client.get_json", return_value={"data": [fake_row]}):
+        df = client.get_nonbm_stor(date(2026, 1, 1), date(2026, 1, 1))
+    assert len(df) == 1
+    assert df.iloc[0]["volume"] == 5.2
+
+
+def test_get_nonbm_stor_empty_range_returns_empty_frame():
+    client = BMRSClient(sleep_seconds=0)
+    with patch("gb_bm_data.client.get_json", return_value={"data": []}):
+        df = client.get_nonbm_stor(date(2026, 1, 1), date(2026, 1, 1))
+    assert df.empty
+
+
 def test_live_only_endpoint_raises():
     client = BMRSClient(sleep_seconds=0)
     try:
@@ -185,6 +210,9 @@ if __name__ == "__main__":
     test_get_system_prices_computes_approx_cost()
     test_get_system_prices_empty_range_returns_empty_frame()
     test_get_demand_outturn_aggregates_five_minute_values_to_settlement_periods()
+    test_get_interconnector_flows_raises_live_only()
+    test_get_nonbm_stor_parses_rows()
+    test_get_nonbm_stor_empty_range_returns_empty_frame()
     test_live_only_endpoint_raises()
     test_get_generation_mix_parses_fuel_percentages()
     test_get_generation_mix_empty_range_returns_empty_frame()
