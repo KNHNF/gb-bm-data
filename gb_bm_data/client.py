@@ -10,6 +10,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 from gb_bm_data._http import DEFAULT_BACKOFF_SECONDS, DEFAULT_MAX_RETRIES, get_json
+from gb_bm_data._settlement import to_settlement
 from gb_bm_data.exceptions import LiveOnlyEndpointError
 
 BASE_URL = "https://data.elexon.co.uk/bmrs/api/v1"
@@ -55,16 +56,18 @@ class BMRSClient:
         )
         return df
 
-    def get_demand_outturn(self, start: date, end: date) -> pd.DataFrame:
+    def get_demand_outturn(self, start: date, end: date, utc_index: bool = False) -> pd.DataFrame:
         """FUELINST via /generation/outturn: 5-min system demand, averaged into
-        half-hours. settlementPeriod here is a UTC half-hour index (1 starts at
-        00:00 UTC), not the official settlement period. The two match in winter
-        but differ by two periods during British Summer Time. Historical day-ahead demand
-        forecasts are not available via BMRS; lagged actual demand is the
-        standard substitute for a demand feature, document this in methodology
-        if used that way."""
+        half-hours. settlementDate and settlementPeriod are the official ones
+        (period 1 starts at local midnight, 23:00 UTC the day before in British
+        Summer Time), so they join directly to get_system_prices. Pass
+        utc_index=True for the older numbering, where period 1 starts at 00:00
+        UTC and the date is the UTC date, which is two periods behind in summer.
+        Historical day-ahead demand forecasts are not available from BMRS, use
+        NESODataPortalClient for those."""
         rows: list[dict] = []
-        current = start
+        raw: list[dict] = []
+        current = start if utc_index else start - timedelta(days=1)
         while current <= end:
             url = f"{self.base_url}/generation/outturn"
             data = get_json(url, params={
@@ -72,11 +75,16 @@ class BMRSClient:
                 "to": f"{current.isoformat()}T23:59Z",
                 "format": "json",
             }, max_retries=self.max_retries, backoff_seconds=self.backoff_seconds).get("data", [])
-            rows.extend(self._aggregate_to_settlement_period(data, current))
+            if utc_index:
+                rows.extend(self._aggregate_to_utc_index(data, current))
+            else:
+                raw.extend(data)
             if self.sleep_seconds:
                 time.sleep(self.sleep_seconds)
             current += timedelta(days=1)
 
+        if not utc_index:
+            rows = self._aggregate_to_settlement_period(raw, start, end)
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame(rows)
@@ -126,7 +134,7 @@ class BMRSClient:
         raise NotImplementedError(f"get_forecast for {dataset!r} is not implemented yet")
 
     @staticmethod
-    def _aggregate_to_settlement_period(rows: list[dict], d: date) -> list[dict]:
+    def _aggregate_to_utc_index(rows: list[dict], d: date) -> list[dict]:
         if not rows:
             return []
         df = pd.DataFrame(rows)
@@ -134,6 +142,22 @@ class BMRSClient:
         minutes = df["startTime"].dt.hour * 60 + df["startTime"].dt.minute
         df["settlementPeriod"] = (minutes // 30) + 1
         df["settlementDate"] = str(d)
+        return BMRSClient._mean_demand(df)
+
+    @staticmethod
+    def _aggregate_to_settlement_period(rows: list[dict], start: date, end: date) -> list[dict]:
+        if not rows:
+            return []
+        df = pd.DataFrame(rows)
+        df["startTime"] = pd.to_datetime(df["startTime"], utc=True)
+        df["settlementDate"], df["settlementPeriod"] = to_settlement(df["startTime"])
+        df = df[(df["settlementDate"] >= start.isoformat()) & (df["settlementDate"] <= end.isoformat())]
+        if df.empty:
+            return []
+        return BMRSClient._mean_demand(df)
+
+    @staticmethod
+    def _mean_demand(df: pd.DataFrame) -> list[dict]:
         agg = (
             df.groupby(["settlementDate", "settlementPeriod"])["demand"]
             .mean()

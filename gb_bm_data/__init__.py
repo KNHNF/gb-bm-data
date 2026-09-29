@@ -4,4 +4,4 @@ from gb_bm_data.neso import NESODataPortalClient
 from gb_bm_data.exceptions import LiveOnlyEndpointError
 
 __all__ = ["BMRSClient", "CarbonIntensityClient", "NESODataPortalClient", "LiveOnlyEndpointError"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

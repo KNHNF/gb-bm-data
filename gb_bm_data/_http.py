@@ -20,6 +20,13 @@ def get_json(url: str, params: dict | None = None, headers: dict | None = None,
             resp = requests.get(url, params=params, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise RetryExhaustedError(f"GET {url} failed with HTTP {status}, not retried") from e
+            last_error = e
+            if attempt < max_retries:
+                time.sleep(backoff_seconds * attempt)
         except requests.RequestException as e:
             last_error = e
             if attempt < max_retries:

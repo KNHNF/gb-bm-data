@@ -4,13 +4,17 @@ from __future__ import annotations
 import sys
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import pandas as pd
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gb_bm_data.carbon_intensity import CarbonIntensityClient
 from gb_bm_data.client import BMRSClient
-from gb_bm_data.exceptions import LiveOnlyEndpointError
+from gb_bm_data._settlement import to_settlement
+from gb_bm_data.exceptions import LiveOnlyEndpointError, RetryExhaustedError
 from gb_bm_data.neso import HISTORIC_DAY_AHEAD_DEMAND_FORECAST_RESOURCE_ID, NESODataPortalClient
 
 FAKE_PRICE_ROW = {
@@ -204,6 +208,76 @@ def test_retry_params_pass_through_to_http_layer():
         client.get_system_prices(date(2026, 1, 1), date(2026, 1, 1))
     assert captured["max_retries"] == 5
     assert captured["backoff_seconds"] == 2.0
+
+
+def _settle(*utc):
+    s = pd.Series(pd.to_datetime(list(utc), utc=True))
+    d, p = to_settlement(s)
+    return list(zip(d, p))
+
+
+def test_settlement_winter_day_starts_at_midnight_utc():
+    assert _settle("2026-01-15T00:00Z", "2026-01-15T23:30Z") == [("2026-01-15", 1), ("2026-01-15", 48)]
+
+
+def test_settlement_summer_day_starts_at_23_00_utc_the_day_before():
+    assert _settle("2026-06-30T23:00Z", "2026-07-01T22:30Z") == [("2026-07-01", 1), ("2026-07-01", 48)]
+
+
+def test_settlement_clock_forward_day_has_46_periods():
+    assert _settle("2026-03-29T00:00Z", "2026-03-29T22:30Z", "2026-03-29T23:00Z") == [
+        ("2026-03-29", 1), ("2026-03-29", 46), ("2026-03-30", 1)]
+
+
+def test_settlement_clock_back_day_has_50_periods():
+    assert _settle("2025-10-25T23:00Z", "2025-10-26T23:30Z") == [("2025-10-26", 1), ("2025-10-26", 50)]
+
+
+BST_DEMAND_ROWS = [
+    {"startTime": "2026-06-30T23:05:00Z", "demand": 1000},
+    {"startTime": "2026-06-30T23:25:00Z", "demand": 1100},
+    {"startTime": "2026-06-30T23:30:00Z", "demand": 1200},
+    {"startTime": "2026-06-30T12:00:00Z", "demand": 9999},
+]
+
+
+def test_demand_outturn_uses_official_periods_in_summer_and_drops_other_dates():
+    client = BMRSClient(sleep_seconds=0)
+    with patch("gb_bm_data.client.get_json", return_value={"data": BST_DEMAND_ROWS}):
+        df = client.get_demand_outturn(date(2026, 7, 1), date(2026, 7, 1))
+    assert list(df["settlementDate"]) == ["2026-07-01", "2026-07-01"]
+    assert list(df["settlementPeriod"]) == [1, 2]
+    assert list(df["demand_mw"]) == [1050, 1200]
+
+
+def test_demand_outturn_utc_index_keeps_the_older_numbering():
+    client = BMRSClient(sleep_seconds=0)
+    with patch("gb_bm_data.client.get_json", return_value={"data": BST_DEMAND_ROWS[:3]}):
+        df = client.get_demand_outturn(date(2026, 7, 1), date(2026, 7, 1), utc_index=True)
+    assert list(df["settlementPeriod"]) == [47, 48]
+    assert list(df["settlementDate"]) == ["2026-07-01", "2026-07-01"]
+
+
+def test_generation_mix_uses_official_periods_in_summer():
+    row = dict(FAKE_GENERATION_MIX_ROW, **{"from": "2026-06-30T23:00Z", "to": "2026-06-30T23:30Z"})
+    client = CarbonIntensityClient(sleep_seconds=0)
+    with patch("gb_bm_data.carbon_intensity.get_json", return_value={"data": [row]}):
+        df = client.get_generation_mix(date(2026, 7, 1), date(2026, 7, 1))
+        legacy = client.get_generation_mix(date(2026, 7, 1), date(2026, 7, 1), utc_index=True)
+    assert (df.iloc[0]["settlementDate"], df.iloc[0]["settlementPeriod"]) == ("2026-07-01", 1)
+    assert (legacy.iloc[0]["settlementDate"], legacy.iloc[0]["settlementPeriod"]) == ("2026-06-30", 47)
+
+
+def test_client_error_is_not_retried():
+    resp = Mock()
+    resp.raise_for_status.side_effect = requests.HTTPError(response=Mock(status_code=404))
+    with patch("gb_bm_data._http.requests.get", return_value=resp) as fake_get:
+        try:
+            BMRSClient(sleep_seconds=0).get_system_prices(date(2026, 1, 1), date(2026, 1, 1))
+            assert False, "expected RetryExhaustedError"
+        except RetryExhaustedError as e:
+            assert "HTTP 404" in str(e)
+    assert fake_get.call_count == 1
 
 
 if __name__ == "__main__":

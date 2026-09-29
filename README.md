@@ -47,13 +47,18 @@ client.get_forecast("FOU2T14D")  # raises LiveOnlyEndpointError
 python tests/test_client.py
 ```
 
-The tests mock the HTTP layer, so they need no network and no key. They check parsing, empty ranges, de-duplication of overlapping monthly chunks and the live-only errors. Passing them does not prove the live APIs still behave the same, and they do not cover the British Summer Time numbering issue above.
+The tests mock the HTTP layer, so they need no network and no key. They check parsing, empty ranges, de-duplication of overlapping monthly chunks, settlement period numbering (winter, summer and both clock-change days), that client errors are not retried, and the live-only errors. Passing them does not prove the live APIs still behave the same, that needs a manual run.
+
+## Settlement periods
+
+`get_system_prices`, `get_demand_outturn` and `get_generation_mix` all return the official `settlementDate` and `settlementPeriod`, so they join directly. A settlement day starts at local midnight, so period 1 begins at 23:00 UTC the day before during British Summer Time, and clock-change days have 46 or 50 periods. I checked this against the live API on 1 July 2026 (48 periods) and 29 March 2026 (46 periods): the keys from all three methods matched exactly.
+
+Version 0.1.0 numbered demand and generation-mix periods from 00:00 UTC instead, which is two periods behind in summer and puts some rows on the wrong date. Pass `utc_index=True` to `get_demand_outturn` or `get_generation_mix` to get that older numbering back, for example to reproduce a dataset built with 0.1.0.
 
 ## Known limits
 
-- **Settlement period numbers from `get_demand_outturn` and `CarbonIntensityClient.get_generation_mix` are a UTC half-hour index, not the official settlement period.** Period 1 starts at 00:00 UTC. That matches the official numbering in winter, but during British Summer Time it is two periods behind, and the date can differ around midnight. `get_system_prices` uses the official numbering, so joining these tables on date and period misaligns them by an hour in summer. I found this while reviewing the package, and I have not changed the behaviour because other code depends on it.
 - The clients return pandas DataFrames with the columns the APIs use. The type hints cover the method signatures, not the columns.
-- Tests use mocked HTTP only.
+- Tests use mocked HTTP only. The settlement period behaviour has unit tests, including the clock-change days.
 
 ## Licences and attribution
 
@@ -69,4 +74,4 @@ The code is MIT licensed, see `LICENSE`.
 
 ## Status
 
-Version 0.1.0. GitHub only for now, revisit PyPI once the API surface stops changing. Used as the data layer for the reproductions in [gb-energy-forecasting-reproductions](https://github.com/KNHNF/gb-energy-forecasting-reproductions).
+Version 0.2.0. GitHub only for now, revisit PyPI once the API surface stops changing. Used as the data layer for the reproductions in [gb-energy-forecasting-reproductions](https://github.com/KNHNF/gb-energy-forecasting-reproductions).

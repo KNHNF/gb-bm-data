@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 
 from gb_bm_data._http import DEFAULT_BACKOFF_SECONDS, DEFAULT_MAX_RETRIES, get_json
+from gb_bm_data._settlement import to_settlement
 
 BASE_URL = "https://api.carbonintensity.org.uk/generation"
 CHUNK_DAYS = 30
@@ -23,12 +24,15 @@ class CarbonIntensityClient:
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
 
-    def get_generation_mix(self, start: date, end: date) -> pd.DataFrame:
+    def get_generation_mix(self, start: date, end: date, utc_index: bool = False) -> pd.DataFrame:
         """Fuel-type generation as % of mix per half-hour, chunked 30 days per
-        call. settlementPeriod is a UTC half-hour index, not the official
-        settlement period, so it is two periods behind during British Summer Time."""
+        call. settlementDate and settlementPeriod are the official ones (period 1
+        starts at local midnight, 23:00 UTC the day before in British Summer
+        Time), so they join directly to BMRS system prices. Pass utc_index=True
+        for the older numbering, where period 1 starts at 00:00 UTC and the date
+        is the UTC date, which is two periods behind in summer."""
         rows: list[dict] = []
-        current = start
+        current = start if utc_index else start - timedelta(days=1)
         while current <= end:
             chunk_end = min(current + timedelta(days=CHUNK_DAYS - 1), end)
             url = f"{self.base_url}/{current.isoformat()}T00:00Z/{chunk_end.isoformat()}T23:30Z"
@@ -42,7 +46,14 @@ class CarbonIntensityClient:
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame(rows)
-        df = df.drop_duplicates(subset=["settlementDate", "settlementPeriod"])
+        if utc_index:
+            minutes = df["from"].dt.hour * 60 + df["from"].dt.minute
+            df["settlementDate"] = df["from"].dt.strftime("%Y-%m-%d")
+            df["settlementPeriod"] = (minutes // 30) + 1
+        else:
+            df["settlementDate"], df["settlementPeriod"] = to_settlement(df["from"])
+            df = df[(df["settlementDate"] >= start.isoformat()) & (df["settlementDate"] <= end.isoformat())]
+        df = df.drop(columns="from").drop_duplicates(subset=["settlementDate", "settlementPeriod"])
         return df.sort_values(["settlementDate", "settlementPeriod"]).reset_index(drop=True)
 
     @staticmethod
@@ -50,13 +61,10 @@ class CarbonIntensityClient:
         from_str = row.get("from", "")
         if not from_str:
             return None
-        dt = datetime.fromisoformat(from_str.replace("Z", "+00:00"))
-        minutes = dt.hour * 60 + dt.minute
-        sp = (minutes // 30) + 1
+        dt = pd.Timestamp(datetime.fromisoformat(from_str.replace("Z", "+00:00"))).tz_convert("UTC")
         mix = {item["fuel"]: item["perc"] for item in row.get("generationmix", [])}
         return {
-            "settlementDate": str(dt.date()),
-            "settlementPeriod": sp,
+            "from": dt,
             "wind_pct": mix.get("wind", 0.0),
             "solar_pct": mix.get("solar", 0.0),
             "gas_pct": mix.get("gas", 0.0),
