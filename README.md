@@ -1,21 +1,24 @@
 # gb-bm-data
 
-Typed Python client for historical GB balancing-mechanism data: the Elexon
-BMRS v2 API (system prices, demand outturn) and the Carbon Intensity API
-(generation mix). Extracted from data-ingestion code originally written for
-a GB BM cost forecasting dissertation (2026), packaged standalone so it is
-reusable without the rest of that repo.
+Typed Python client for historical GB balancing-mechanism data. It wraps the Elexon BMRS v2 API (system prices, demand outturn), the Carbon Intensity API (generation mix) and the NESO Data Portal (historic day-ahead demand forecast). For the BMRS endpoints that only serve live data it raises an error instead of quietly returning the wrong dates.
 
-## Why this exists
+It was pulled out of the data-ingestion code for my GB balancing cost forecasting dissertation so it can be reused without the rest of that repo.
 
-BMRS v2 has no mature typed wrapper yet. Checked 2026-08-15: the only real
-prior art, [ElexonDataPortal](https://github.com/OSUKED/ElexonDataPortal)
-(62 stars), targets the legacy key-gated v1 tier (`api.bmreports.com`,
-stream codes like `B1610`), not the public v2 REST API
-(`data.elexon.co.uk/bmrs/api/v2`) this package wraps, and doesn't touch
-NESO or Carbon Intensity at all. This package also documents, as code (not
-just a paragraph in a methodology section), which BMRS v2 endpoints are
-historical and which are live-only:
+**Four BMRS v2 endpoints are live-only and ignore date parameters:** `DATL`, `FOU2T14D`, `/demand/outturn/stream` and `INTOUTHH` (interconnector flows). There is no historical forecast recovery through BMRS v2 for these. Calling them raises `LiveOnlyEndpointError`. The NESO client below covers the demand forecast gap.
+
+## Why it exists
+
+I checked on 15 August 2026 and found no maintained typed wrapper for BMRS v2. The nearest project, [ElexonDataPortal](https://github.com/OSUKED/ElexonDataPortal) (62 stars then), targets the older key-gated v1 tier (`api.bmreports.com`), not the public v2 REST API (`data.elexon.co.uk/bmrs/api/v2`) used here, and does not cover NESO or Carbon Intensity.
+
+## Install
+
+```bash
+pip install git+https://github.com/KNHNF/gb-bm-data
+```
+
+or from a clone, `pip install -e .`. Python 3.10 or later, needs `requests` and `pandas`. No API key is needed for any of the three sources.
+
+## Use
 
 ```python
 from datetime import date
@@ -25,40 +28,18 @@ client = BMRSClient()
 prices = client.get_system_prices(date(2026, 1, 1), date(2026, 1, 7))
 demand = client.get_demand_outturn(date(2026, 1, 1), date(2026, 1, 7))
 
-client.get_forecast("FOU2T14D")  # raises LiveOnlyEndpointError, not silently wrong data
+client.get_forecast("FOU2T14D")  # raises LiveOnlyEndpointError
 ```
 
-## Install
+## What is in it
 
-```bash
-pip install -e .
-```
-
-## What's confirmed live-only (raises `LiveOnlyEndpointError`)
-
-Confirmed during real dissertation data collection, August 2026: `DATL`,
-`FOU2T14D` forecast datasets, and `/demand/outturn/stream` all ignore
-historical date parameters and only return recent/live data. There is no
-historical forecast recovery through BMRS v2 for these. Use lagged actual
-values as a documented substitute feature instead of pretending a forecast
-exists.
-
-## Modules
-
-- `gb_bm_data.client.BMRSClient`: system prices (DISEBSP, includes an
-  `approx_cost_gbp` computed column), demand outturn (FUELINST via
-  `/generation/outturn`, aggregated 5-min to 30-min settlement periods).
-- `gb_bm_data.carbon_intensity.CarbonIntensityClient`: generation mix
-  (wind/solar/gas/nuclear %) from the separate, unrelated, no-auth Carbon
-  Intensity API. BMRS v2 has no LOLP or wind-mix endpoint of its own.
-- `gb_bm_data.neso.NESODataPortalClient`: generic query() over the NESO
-  Data Portal's CKAN Datastore API (api.neso.energy), plus a convenience
-  method `get_historic_day_ahead_demand_forecast()` covering 2018 to
-  present. This is the historical demand *forecast* BMRS v2 cannot provide
-  (see `LIVE_ONLY_DATASETS` in `client.py`); the dissertation had to fall
-  back to lagged actual demand for that reason, this endpoint removes that
-  limitation for future use.
-- `gb_bm_data.exceptions`: `LiveOnlyEndpointError`, `RetryExhaustedError`.
+- `BMRSClient.get_system_prices`: DISEBSP system prices with an `approx_cost_gbp` column I compute from them.
+- `BMRSClient.get_demand_outturn`: FUELINST via `/generation/outturn`, aggregated from 5-minute data to 30-minute settlement periods.
+- `BMRSClient.get_nonbm_stor`: non-BM Short Term Operating Reserve volumes. **It returned an empty frame for every window I tried**, recent and 2024. I have not confirmed whether STOR events are that rare or the query needs changing, so treat an empty frame as "no rows returned", not proof nothing happened.
+- `CarbonIntensityClient.get_generation_mix`: wind, solar, gas and nuclear percentages. BMRS v2 has no generation-mix endpoint of its own.
+- `NESODataPortalClient`: a generic `query()` over the NESO CKAN Datastore API, plus `get_historic_day_ahead_demand_forecast()` for the 2018 to present archive. Checked live on 15 August 2026 against the resource `9847e7bb-986e-49be-8138-717b25933fbb` (57,918 rows). NESO caps the API at 2 requests a minute.
+- `max_retries` and `backoff_seconds` are constructor arguments on the clients.
+- Exceptions: `LiveOnlyEndpointError`, `RetryExhaustedError`.
 
 ## Test
 
@@ -66,88 +47,20 @@ exists.
 python tests/test_client.py
 ```
 
-All tests mock the HTTP layer, no real network calls, no API key needed to
-run the test suite.
+The tests mock the HTTP layer, so they need no network and no key. They check parsing, empty ranges, de-duplication of overlapping monthly chunks and the live-only errors. Passing them does not prove the live APIs still behave the same, that needs a manual run.
+
+## Licences and attribution
+
+Read on 15 August 2026. This is my reading of the terms, not legal advice.
+
+- **Carbon Intensity API:** [CC BY 4.0](http://terms.carbonintensity.org.uk/). A thin client library is allowed. The terms bar building something that substantially replaces NESO's own site or app.
+- **NESO Data Portal:** [NESO Open Licence](https://www.neso.energy/data-portal/neso-open-licence), permits commercial use, needs the attribution below. Licensed per dataset, and I only checked the demand forecast dataset.
+- **Elexon BMRS:** I found no clause against publishing an open-source client. The registered-key terms describe the older v1 tier. This package uses the v2 API that needs no key, so there is no key to bundle. If Elexon adds a key requirement to v2, each user should register their own.
+
+Attribution: carbon intensity data from the [Carbon Intensity API](https://carbonintensity.org.uk/), CC BY 4.0. Demand forecast data: Supported by National Energy SO Open Data.
+
+The code is MIT licensed, see `LICENSE`.
 
 ## Status
 
-Skeleton extracted 2026-08-14 from `gb-bm-forecasting/src/01-03`. Release
-plan (decided 2026-08-15): GitHub-only for now, `pip install
-git+https://github.com/KNHNF/gb-bm-data`; revisit PyPI once the API
-surface settles.
-
-## GitHub release checklist
-
-This package is not published until Karan approves the release.
-
-1. Run `python tests/test_client.py` from a clean virtual environment.
-2. Confirm `pip install -e .` and `pip check` succeed.
-3. Review the public README and licence attribution below.
-4. Create the GitHub remote, push the reviewed commit, then install with:
-
-```bash
-pip install git+https://github.com/KNHNF/gb-bm-data
-```
-
-Used since as the data layer for two independent paper reproductions:
-[lucas-2020-reproduction](../lucas-2020-reproduction) and a Bunn/Ganesh &
-Bunn/Deng reproduction set, both under `public-projects`.
-
-Done as of 2026-08-14:
-- Generation-mix tests added (`tests/test_client.py`): fuel-percentage
-  parsing, empty-range handling, dedup of overlapping monthly chunks.
-- `max_retries` and `backoff_seconds` exposed as constructor arguments on
-  both `BMRSClient` and `CarbonIntensityClient`, threaded through to the
-  shared `_http.get_json` retry wrapper (previously only configurable by
-  editing `_http.py`'s module-level defaults).
-
-Done as of 2026-08-15:
-- `gb_bm_data.neso.NESODataPortalClient` added: generic `query()` over
-  the CKAN Datastore API plus `get_historic_day_ahead_demand_forecast()`,
-  verified live against `api.neso.energy` (resource
-  `9847e7bb-986e-49be-8138-717b25933fbb`, 57,918 rows, 2018 to present).
-  Four new mocked tests in `tests/test_client.py`.
-- Licence/ToS read for all three APIs (see "Licence position" below).
-  Read directly by this session, not a substitute for the human sign-off
-  a public release still needs, see caveat below.
-
-## Licence position (read 2026-08-15, not a substitute for your own read before release)
-
-- **Carbon Intensity API**: [CC BY 4.0](http://terms.carbonintensity.org.uk/).
-  Commercial and non-commercial use allowed. Cannot sell/lease/sublicense
-  the API itself, and cannot build something that "substantially replaces
-  the core user experience" of NESO's own site/app/API, a thin typed
-  client library is neither. Prior art exists (e.g. a .NET wrapper for the
-  same API is already public on GitHub), so this pattern is established.
-  Attribution recommended per CC BY 4.0, not yet added to this repo.
-- **NESO Data Portal**: [NESO Open Licence](https://www.neso.energy/data-portal/neso-open-licence),
-  OGL-compatible, worldwide/royalty-free/perpetual, explicitly permits
-  commercial use and inclusion in your own product. Requires the
-  attribution string `"Supported by National Energy SO Open Data"`, not
-  yet added to this repo. Each dataset is licensed individually, this
-  applies to the demand-forecast dataset checked, not verified per-dataset
-  for future additions.
-- **Elexon BMRS API**: no clause found that prohibits building or publicly
-  distributing an open-source client library. The important constraint is
-  different: the licence terms on elexon.co.uk describe a registered
-  account and API key from elexonportal.co.uk, "revocable, non-transferable,
-  non-sublicensable". Confirmed 2026-08-15 (see ElexonDataPortal comparison
-  above) that this applies to the legacy `api.bmreports.com` tier: this
-  package instead calls `data.elexon.co.uk/bmrs/api/v2`, the newer public
-  Developer API, which requires no key at all, so there is no key to
-  accidentally bundle. If Elexon ever gates v2 behind a key, treat the same
-  rule as would apply to the legacy tier: never bundle one, document that
-  each user registers their own.
-
-None of the above is legal advice, and this was read by an AI session, not
-a solicitor. Karan should still do his own read before a public PyPI
-release, this section exists to make that read faster, not replace it.
-
-## Attribution
-
-Required by the licences above, both credited here rather than only in
-code comments:
-
-- Carbon intensity data: [Carbon Intensity API](https://carbonintensity.org.uk/),
-  licensed under [CC BY 4.0](http://terms.carbonintensity.org.uk/).
-- Demand forecast data: Supported by National Energy SO Open Data.
+Version 0.1.0. GitHub only for now, revisit PyPI once the API surface stops changing. Used as the data layer for the reproductions in [gb-energy-forecasting-reproductions](https://github.com/KNHNF/gb-energy-forecasting-reproductions).

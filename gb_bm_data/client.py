@@ -99,7 +99,7 @@ class BMRSClient:
     def get_interconnector_flows(self, *_args, **_kwargs):
         """INTOUTHH via /generation/outturn/interconnectors. Deliberately
         raises. First implemented 2026-09-12 on the mistaken belief (a
-        misread WebFetch test result) that this endpoint honours historical
+        misread test result) that this endpoint honours historical
         from/to parameters. Directly retested the same day with a clean
         single-day request (2017-03-01): the endpoint returned only the
         three most recent live days (confirmed against real system dates),
