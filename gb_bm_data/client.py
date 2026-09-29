@@ -1,10 +1,10 @@
-"""Typed client for the Elexon BMRS v2 API, historical GB balancing-mechanism
+"""Client for the Elexon BMRS (Insights) API, historical GB balancing-mechanism
 data only. Live-only endpoints (forecasts, streaming demand) raise
 LiveOnlyEndpointError rather than silently returning wrong data, see
 exceptions.py for the confirmed list."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
 from datetime import date, timedelta
 
 import pandas as pd
@@ -15,18 +15,6 @@ from gb_bm_data.exceptions import LiveOnlyEndpointError
 BASE_URL = "https://data.elexon.co.uk/bmrs/api/v1"
 
 LIVE_ONLY_DATASETS = {"DATL", "FOU2T14D", "demand/outturn/stream", "INTOUTHH"}
-
-
-@dataclass
-class SystemPriceRow:
-    settlement_date: str
-    settlement_period: int
-    system_buy_price: float
-    system_sell_price: float
-    net_imbalance_volume: float
-    total_accepted_offer_volume: float
-    total_accepted_bid_volume: float
-    approx_cost_gbp: float
 
 
 class BMRSClient:
@@ -46,8 +34,6 @@ class BMRSClient:
         """DISEBSP dataset: system buy/sell price, net imbalance volume,
         accepted offer/bid volumes per settlement period. Adds
         approx_cost_gbp = offer_vol * SBP + |bid_vol| * SSP."""
-        import time
-
         rows: list[dict] = []
         current = start
         while current <= end:
@@ -70,13 +56,13 @@ class BMRSClient:
         return df
 
     def get_demand_outturn(self, start: date, end: date) -> pd.DataFrame:
-        """FUELINST via /generation/outturn: 5-min system demand, aggregated
-        to 30-min settlement periods by mean. Historical day-ahead demand
-        forecasts are not available via BMRS v2; lagged actual demand is the
+        """FUELINST via /generation/outturn: 5-min system demand, averaged into
+        half-hours. settlementPeriod here is a UTC half-hour index (1 starts at
+        00:00 UTC), not the official settlement period. The two match in winter
+        but differ by two periods during British Summer Time. Historical day-ahead demand
+        forecasts are not available via BMRS; lagged actual demand is the
         standard substitute for a demand feature, document this in methodology
         if used that way."""
-        import time
-
         rows: list[dict] = []
         current = start
         while current <= end:
@@ -101,7 +87,7 @@ class BMRSClient:
         from and to parameters and returns only the latest few days. Tested on
         2017-03-01 and it still returned recent data, so this fails loudly."""
         raise LiveOnlyEndpointError(
-            "INTOUTHH ('/generation/outturn/interconnectors') is live-only in BMRS v2 "
+            "INTOUTHH ('/generation/outturn/interconnectors') is live-only in BMRS "
             "and ignores historical from and to parameters."
         )
 
@@ -111,8 +97,6 @@ class BMRSClient:
         an empty list, including recent dates and a day in 2024. I have not found
         out whether STOR events are that rare or the query is wrong, so an empty
         frame means no rows came back, nothing more."""
-        import time
-
         rows: list[dict] = []
         current = start
         while current <= end:
@@ -134,10 +118,10 @@ class BMRSClient:
     def get_forecast(self, dataset: str, *_args, **_kwargs):
         """Always raises for the live-only datasets (DATL, FOU2T14D,
         demand/outturn/stream, INTOUTHH). They ignore historical dates, so there
-        is no way to recover past forecasts from BMRS v2."""
+        is no way to recover past forecasts from BMRS."""
         if dataset in LIVE_ONLY_DATASETS:
             raise LiveOnlyEndpointError(
-                f"{dataset!r} is live-only in BMRS v2, so no historical data is available."
+                f"{dataset!r} is live-only in BMRS, so no historical data is available."
             )
         raise NotImplementedError(f"get_forecast for {dataset!r} is not implemented yet")
 

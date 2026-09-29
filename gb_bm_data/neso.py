@@ -2,7 +2,7 @@
 Datasets are identified by resource_id, not a fixed URL per dataset like
 client.py's BMRS endpoints, so this exposes a generic query() plus one
 documented convenience method for the historic day-ahead demand forecast:
-the historical demand *forecast* BMRS v2 cannot provide (see client.py's
+the historical demand *forecast* BMRS cannot provide (see client.py's
 LIVE_ONLY_DATASETS)."""
 from __future__ import annotations
 

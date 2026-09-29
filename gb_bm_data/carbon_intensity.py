@@ -1,8 +1,9 @@
 """Wrapper for the (unrelated-org, public, no-auth) Carbon Intensity API,
 used here for historical GB generation mix (wind/solar/gas/nuclear %) since
-BMRS v2 does not expose an LOLP or wind-mix endpoint directly."""
+BMRS does not expose an LOLP or wind-mix endpoint directly."""
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -23,10 +24,9 @@ class CarbonIntensityClient:
         self.backoff_seconds = backoff_seconds
 
     def get_generation_mix(self, start: date, end: date) -> pd.DataFrame:
-        """Fuel-type generation as % of mix per settlement period, chunked
-        30 days per call."""
-        import time
-
+        """Fuel-type generation as % of mix per half-hour, chunked 30 days per
+        call. settlementPeriod is a UTC half-hour index, not the official
+        settlement period, so it is two periods behind during British Summer Time."""
         rows: list[dict] = []
         current = start
         while current <= end:
