@@ -24,7 +24,7 @@ class CarbonIntensityClient:
 
     def get_generation_mix(self, start: date, end: date) -> pd.DataFrame:
         """Fuel-type generation as % of mix per settlement period, chunked
-        30 days per call same as the dissertation ingestion script."""
+        30 days per call."""
         import time
 
         rows: list[dict] = []

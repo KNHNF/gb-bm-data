@@ -3,7 +3,7 @@ Datasets are identified by resource_id, not a fixed URL per dataset like
 client.py's BMRS endpoints, so this exposes a generic query() plus one
 documented convenience method for the historic day-ahead demand forecast:
 the historical demand *forecast* BMRS v2 cannot provide (see client.py's
-LIVE_ONLY_DATASETS), confirmed live during dissertation data collection."""
+LIVE_ONLY_DATASETS)."""
 from __future__ import annotations
 
 import json
@@ -64,8 +64,7 @@ class NESODataPortalClient:
                                                  days_ahead: int = 1) -> pd.DataFrame:
         """Historic day-ahead national demand forecast (TARGETDATE,
         FORECASTDEMAND MW, CARDINALPOINT, DAYSAHEAD), 2018 to present.
-        days_ahead=1 selects the 1-day-ahead forecast, matching the
-        dissertation's day-ahead horizon."""
+        days_ahead=1 selects the 1-day-ahead forecast."""
         sql = (
             f'SELECT * FROM "{HISTORIC_DAY_AHEAD_DEMAND_FORECAST_RESOURCE_ID}" '
             f"WHERE \"TARGETDATE\" >= '{start.isoformat()}' "

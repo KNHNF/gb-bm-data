@@ -3,10 +3,9 @@ class GBBMDataError(Exception):
 
 
 class LiveOnlyEndpointError(GBBMDataError):
-    """Raised when a date range is requested from a BMRS v2 endpoint that
-    ignores historical date parameters and only ever returns recent/live
-    data. Confirmed live-only during dissertation data collection (Aug 2026):
-    DATL, FOU2T14D forecast endpoints, and /demand/outturn/stream."""
+    """Raised when historical data is requested from a BMRS v2 endpoint that
+    ignores date parameters and only returns recent data: DATL, FOU2T14D,
+    /demand/outturn/stream and the interconnector outturn endpoint."""
 
 
 class RetryExhaustedError(GBBMDataError):
