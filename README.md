@@ -44,7 +44,8 @@ client.get_forecast("FOU2T14D")  # raises LiveOnlyEndpointError
 ## Test
 
 ```bash
-python tests/test_client.py
+pip install -e ".[test]"
+pytest -q
 ```
 
 The tests mock the HTTP layer, so they need no network and no key. They check parsing, empty ranges, de-duplication of overlapping monthly chunks, settlement period numbering (winter, summer and both clock-change days), that client errors are not retried, and the live-only errors. Passing them does not prove the live APIs still behave the same, that needs a manual run.

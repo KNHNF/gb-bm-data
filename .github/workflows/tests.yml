@@ -13,6 +13,6 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install
-        run: pip install -e .
+        run: pip install -e ".[test]"
       - name: Run tests
-        run: python tests/test_client.py
+        run: pytest -q
