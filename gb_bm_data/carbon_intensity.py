@@ -1,12 +1,13 @@
 """Wrapper for the (unrelated-org, public, no-auth) Carbon Intensity API,
 used here for historical GB generation mix (wind/solar/gas/nuclear %) since
-BMRS v2 does not expose an LOLP or wind-mix endpoint directly."""
+BMRS does not expose an LOLP or wind-mix endpoint directly."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
 import pandas as pd
 
+from gb_bm_data._time import check_range, to_settlement
 from gb_bm_data._http import DEFAULT_BACKOFF_SECONDS, DEFAULT_MAX_RETRIES, get_json
 
 BASE_URL = "https://api.carbonintensity.org.uk/generation"
@@ -27,6 +28,7 @@ class CarbonIntensityClient:
         30 days per call same as the dissertation ingestion script."""
         import time
 
+        check_range(start, end)
         rows: list[dict] = []
         current = start
         while current <= end:
@@ -51,11 +53,10 @@ class CarbonIntensityClient:
         if not from_str:
             return None
         dt = datetime.fromisoformat(from_str.replace("Z", "+00:00"))
-        minutes = dt.hour * 60 + dt.minute
-        sp = (minutes // 30) + 1
+        settlement_date, sp = to_settlement(dt)
         mix = {item["fuel"]: item["perc"] for item in row.get("generationmix", [])}
         return {
-            "settlementDate": str(dt.date()),
+            "settlementDate": settlement_date,
             "settlementPeriod": sp,
             "wind_pct": mix.get("wind", 0.0),
             "solar_pct": mix.get("solar", 0.0),

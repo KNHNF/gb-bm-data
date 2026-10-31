@@ -1,7 +1,20 @@
 from gb_bm_data.client import BMRSClient
 from gb_bm_data.carbon_intensity import CarbonIntensityClient
 from gb_bm_data.neso import NESODataPortalClient
-from gb_bm_data.exceptions import LiveOnlyEndpointError
+from gb_bm_data.exceptions import (
+    GBBMDataError,
+    LiveOnlyEndpointError,
+    RequestFailedError,
+    RetryExhaustedError,
+)
 
-__all__ = ["BMRSClient", "CarbonIntensityClient", "NESODataPortalClient", "LiveOnlyEndpointError"]
+__all__ = [
+    "BMRSClient",
+    "CarbonIntensityClient",
+    "NESODataPortalClient",
+    "GBBMDataError",
+    "LiveOnlyEndpointError",
+    "RequestFailedError",
+    "RetryExhaustedError",
+]
 __version__ = "0.1.0"

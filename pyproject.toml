@@ -1,7 +1,7 @@
 [project]
 name = "gb-bm-data"
 version = "0.1.0"
-description = "Typed Python client for historical GB balancing-mechanism data (Elexon BMRS v2 + Carbon Intensity API)"
+description = "Python client for historical GB balancing-mechanism data (Elexon BMRS, Carbon Intensity API, NESO Data Portal)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

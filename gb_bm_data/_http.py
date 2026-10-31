@@ -5,7 +5,7 @@ import time
 
 import requests
 
-from gb_bm_data.exceptions import RetryExhaustedError
+from gb_bm_data.exceptions import RequestFailedError, RetryExhaustedError
 
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_BACKOFF_SECONDS = 1.0
@@ -14,12 +14,21 @@ DEFAULT_BACKOFF_SECONDS = 1.0
 def get_json(url: str, params: dict | None = None, headers: dict | None = None,
              timeout: int = 30, max_retries: int = DEFAULT_MAX_RETRIES,
              backoff_seconds: float = DEFAULT_BACKOFF_SECONDS) -> dict:
+    if max_retries < 1:
+        raise ValueError(f"max_retries must be at least 1, got {max_retries}")
     last_error: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise RequestFailedError(f"GET {url} rejected with HTTP {status}: {e}") from e
+            last_error = e
+            if attempt < max_retries:
+                time.sleep(backoff_seconds * attempt)
         except requests.RequestException as e:
             last_error = e
             if attempt < max_retries:
